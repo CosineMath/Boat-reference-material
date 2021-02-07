@@ -1,7 +1,7 @@
 
 # Configuration
 
-VERSION_NAME := 20201010
+VERSION_NAME := 20210121
 VERSION_TARGET := aarch64-linux-android
 VERSION_ARCH := aarch64
 
@@ -19,18 +19,13 @@ endif
 
 WERROR_CFLAGS := 
 
-COMMON_CFLAGS := $(OPTIMIZE_CFLAGS) $(WERROR_CFLAGS)
+COMMON_CFLAGS := $(OPTIMIZE_CFLAGS) $(WERROR_CFLAGS) -g
 
-LWJGL2_ANT_FLAGS := 
-ifeq (x$(VERSION_ARCH), xarm)
-LWJGL2_ANT_FLAGS += -Dbuild.32bit.only=true
-else
- ifeq (x$(VERSION_ARCH), xaarch64)
- LWJGL2_ANT_FLAGS += -Dbuild.64bit.only=true
- else
- LWJGL2_ANT_FLAGS += -Dbuild.32bit.only=true
- endif
+LWJGL2_ANT_FLAGS := -Dbuild.32bit.only=true
+ifeq (x$(VERSION_ARCH), xaarch64)
+LWJGL2_ANT_FLAGS := -Dbuild.64bit.only=true
 endif
+
 
 LWJGL2_NATIVE_LIB := liblwjgl.so
 ifeq (x$(VERSION_ARCH), xaarch64)
@@ -42,18 +37,29 @@ ifeq (x$(VERSION_ARCH), xaarch64)
 LWJGL3_TARGET_ARCH := arm64
 endif
 
+JDK_ARCH := aarch32
+ifeq (x$(VERSION_ARCH), xaarch64)
+JDK_ARCH := aarch64
+endif
+
+JDK_VM_VARIANT := client
+ifeq (x$(VERSION_ARCH), xaarch64)
+JDK_VM_VARIANT := server
+endif
+
+
 PROJECT_ROOT := /home/cosine/projects
-J2RE_IMAGE := /home/cosine/projects/Boat-releases/mcinabox/j2re-image
-JDK_INCLUDE := /home/cosine/projects/openjdk-8-jdk-aarch64-glibc/usr/lib/jvm/java-8-openjdk-arm64/include
+J2RE_IMAGE := /home/cosine/projects/openjdk-jdk8u-aarch64-8u272/openjdk-jdk8u-aarch64-android/build/linux-aarch64-normal-server-release/images/j2re-image
+JDK_INCLUDE := /home/cosine/projects/openjdk-jdk8u-aarch64-8u272/openjdk-jdk8u-aarch64-android/build/linux-aarch64-normal-server-release/images/j2sdk-image/include
 BOAT := $(PROJECT_ROOT)/Boat-4
 BOAT_INCLUDE := $(BOAT)/jni/boat/include
 BOAT_LIB := $(BUILD_DIR)/boat
 LWJGL2 := $(PROJECT_ROOT)/lwjgl-boat
-GL4ES := $(PROJECT_ROOT)/gl4es-1.1.2
+GL4ES := $(PROJECT_ROOT)/gl4es
 OPENAL_SOFT := $(PROJECT_ROOT)/openal-soft-openal-soft-1.19.1
 GLFW := $(PROJECT_ROOT)/glfw-boat
 DYNCALL := $(PROJECT_ROOT)/dyncall-1.1
-DYNCALL_LIB := $(RUNTIME)/dyncall/lib
+DYNCALL_LIB := $(BUILD_DIR)/dyncall/lib
 LWJGL3 := $(PROJECT_ROOT)/lwjgl3-boat
 TOOLCHAIN_LIBRARY_PATH := $(PROJECT_ROOT)/ndk/aarch64-linux-android-gcc/sysroot/usr/lib
 
@@ -71,14 +77,15 @@ runtime-$(VERSION_ARCH)-$(VERSION_NAME).tar.xz : all
 j2re-image : 
 	cp -r $(J2RE_IMAGE) $(BUILD_DIR)
 	rm -f $(BUILD_DIR)/j2re-image/lib/*.diz
-	rm -f $(BUILD_DIR)/j2re-image/lib/aarch64/*.diz
-	rm -f $(BUILD_DIR)/j2re-image/lib/aarch64/server/*.diz
-	rm -f $(BUILD_DIR)/j2re-image/lib/aarch64/jli/*.diz
+	rm -f $(BUILD_DIR)/j2re-image/lib/$(JDK_ARCH)/*.diz
+	rm -f $(BUILD_DIR)/j2re-image/lib/$(JDK_ARCH)/$(JDK_VM_VARIANT)/*.diz
+	rm -f $(BUILD_DIR)/j2re-image/lib/$(JDK_ARCH)/jli/*.diz
 
 boat :
-	mkdir boat
 	cd $(BOAT)/jni/boat ; \
-	$(TARGET_CC) -o $(BUILD_DIR)/boat/libboat.so $(COMMON_CFLAGS) -std=gnu99 -shared -Wl,--soname=libboat.so,--no-undefined -llog -ldl -landroid -I include/ -DBUILD_BOAT boat.c boat_activity.c loadme.c
+	$(TARGET_CC) -o libboat.so $(COMMON_CFLAGS) -std=gnu99 -shared -Wl,--soname=libboat.so,--no-undefined -llog -ldl -landroid -I include/ -DBUILD_BOAT boat.c loadme.c
+	mkdir boat
+	cp $(BOAT)/jni/boat/libboat.so $(BUILD_DIR)/boat
 
 lwjgl-2 : boat
 	cd $(LWJGL2) ; \
@@ -97,7 +104,7 @@ libGL.so.1 :
 	cd build ; \
 	cmake .. -DBCMHOST=1 -DNOX11=1 -DDEFAULT_ES=2 -DUSE_CLOCK=OFF -DCMAKE_C_FLAGS="$(COMMON_CFLAGS) -DANDROID=1" -DCMAKE_C_COMPILER="$(TARGET_CC)" ; \
 	make 
-	cp $(GL4ES)/build/lib/libGL.so.1 $(BUILD_DIR)
+	cp $(GL4ES)/lib/libGL.so.1 $(BUILD_DIR)
 	
 .PHONY : openal-soft
 openal-soft : libopenal.so.1
@@ -123,15 +130,15 @@ dyncall :
 	mkdir dyncall
 	cd $(DYNCALL) ; \
 	mkdir build ; \
-	export CC=arm-linux-androideabi-gcc ; \
+	export CC=$(TARGET_CC) ; \
 	./configure --prefix=$(BUILD_DIR)/dyncall ; \
 	make install ; \
 	unset CC
 	
 lwjgl-3 : boat dyncall libglfw.so libopenal.so.1
 	cd $(LWJGL3) ; \
-	ant -Dbuild.arch="$(LWJGL3_TARGET_ARCH)" -Dplatform.boat=true -Ddyncall.lib="$(DYNCALL_LIB)" -Dglfw.lib="$(BUILD_DIR)" -Dopenal.lib="$(BUILD_DIR)" ; \
-	ant -Dbuild.arch="$(LWJGL3_TARGET_ARCH)" -Dplatform.boat=true -Ddyncall.lib="$(DYNCALL_LIB)" -Dglfw.lib="$(BUILD_DIR)" -Dopenal.lib="$(BUILD_DIR)" release
+	ant -Dbuild.arch="$(LWJGL3_TARGET_ARCH)" -Dplatform.boat=true -Ddyncall.lib="$(DYNCALL_LIB)" -Dglfw.lib="$(BUILD_DIR)" -Dopenal.lib="$(BUILD_DIR)" 
+# ant -Dbuild.arch="$(LWJGL3_TARGET_ARCH)" -Dplatform.boat=true -Ddyncall.lib="$(DYNCALL_LIB)" -Dglfw.lib="$(BUILD_DIR)" -Dopenal.lib="$(BUILD_DIR)" release
 	mkdir $(BUILD_DIR)/lwjgl-3
 	cp $(LWJGL3)/bin/RELEASE/lwjgl/lwjgl.jar $(BUILD_DIR)/lwjgl-3
 	cp $(LWJGL3)/bin/RELEASE/lwjgl-glfw/lwjgl-glfw.jar $(BUILD_DIR)/lwjgl-3
@@ -209,6 +216,9 @@ clean-glfw :
 
 .PHONY : clean-dyncall
 clean-dyncall : 
+	-cd $(DYNCALL) ; \
+	make clean
+	-rm -rf $(DYNCALL)/build
 	-rm -rf $(BUILD_DIR)/dyncall
 	
 .PHONY : clean-boat
